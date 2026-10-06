@@ -1,14 +1,20 @@
-// PNG rendering: display images as sixel graphics on terminals that
+// Image rendering: display images as sixel graphics on terminals that
 // support them, falling back to a plain passthrough like cat otherwise.
+// PNG, JPEG, and GIF files are recognized; animated GIFs are rendered
+// as their first frame, since sixel output is static.
 package main
 
 import (
 	"bytes"
 	"fmt"
 	"image"
-	"image/png"
+	// Register the decoders used by image.Decode.
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -17,12 +23,15 @@ import (
 	"golang.org/x/term"
 )
 
-var pngExtensions = map[string]bool{
-	".png": true,
+var imageExtensions = map[string]bool{
+	".png":  true,
+	".jpg":  true,
+	".jpeg": true,
+	".gif":  true,
 }
 
-func isPNG(name string) bool {
-	return pngExtensions[strings.ToLower(name[len(name)-len(".png"):])]
+func isImage(name string) bool {
+	return imageExtensions[strings.ToLower(filepath.Ext(name))]
 }
 
 // Sixel support probing talks to the terminal, so it is done at most
@@ -32,7 +41,7 @@ var (
 	sixelUsable bool
 )
 
-// useSixel reports whether PNG files should be rendered as sixel
+// useSixel reports whether image files should be rendered as sixel
 // graphics. It requires stdout to be a terminal; the terminal must then
 // advertise sixel support in its Device Attributes reply. The check is
 // disabled entirely by CATT_COLOR=no.
@@ -53,17 +62,17 @@ func useSixel() bool {
 // when the terminal's width in pixels is unknown.
 const fallbackSixelWidth = 2000
 
-// renderPNG decodes a PNG file and displays it as a sixel graphic. When
-// the terminal does not support sixels (or the file is not a valid
-// PNG), the raw bytes pass through untouched, just like cat.
+// renderImage decodes an image file and displays it as a sixel graphic.
+// When the terminal does not support sixels (or the file is not a valid
+// image), the raw bytes pass through untouched, just like cat.
 //
 // Sixel pixels are roughly half as wide as they are tall, so the image
 // is doubled in width to keep its aspect ratio on screen. The result is
 // capped to the terminal's width in pixels so wide images shrink to
 // fit, and the cursor is moved to a fresh line afterwards.
-func renderPNG(filename string, data []byte, w io.Writer) error {
+func renderImage(filename string, data []byte, w io.Writer) error {
 	if useSixel() {
-		img, err := png.Decode(bytes.NewReader(data))
+		img, _, err := image.Decode(bytes.NewReader(data))
 		if err == nil {
 			return renderImageAsSixel(img, w)
 		}

@@ -2,8 +2,8 @@
 //
 // Like cat, it prints any file to output. Files with a markdown
 // extension are rendered with glamour. Code files are printed with
-// syntax highlighting via chroma. PNG files are displayed as sixel
-// graphics on terminals that support them.
+// syntax highlighting via chroma. PNG, JPEG, and GIF files are displayed
+// as sixel graphics on terminals that support them.
 package main
 
 import (
@@ -95,8 +95,9 @@ printed with syntax highlighting. CSV files are rendered as tables,
 identical in appearance to tables from markdown files. All use the
 same dark styling on a terminal and plain output when piped.
 
-PNG files are displayed as sixel graphics on terminals that support
-them, and passed through untouched otherwise.
+PNG, JPEG, and GIF files are displayed as sixel graphics on terminals
+that support them, and passed through untouched otherwise. Animated
+GIFs are shown as their first frame.
 
 Set CATT_COLOR=yes to force dark styling even when piped, or
 CATT_COLOR=no to force plain output even on a terminal (which also
@@ -157,8 +158,8 @@ func catFile(path string, w io.Writer) error {
 	if isMarkdown(path) {
 		return renderMarkdown(string(data), w)
 	}
-	if isPNG(path) {
-		return renderPNG(path, data, w)
+	if isImage(path) {
+		return renderImage(path, data, w)
 	}
 	if isCSV(path) {
 		return renderCSV(string(data), w)
