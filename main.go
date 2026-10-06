@@ -1,7 +1,8 @@
 // catt — cat(1) clone.
 //
 // Like cat, it prints any file to output. Files with a markdown
-// extension are rendered with glamour.
+// extension are rendered with glamour. Code files are printed with
+// syntax highlighting via chroma.
 package main
 
 import (
@@ -27,17 +28,29 @@ func isMarkdown(name string) bool {
 	return markdownExtensions[strings.ToLower(filepath.Ext(name))]
 }
 
-// renderMarkdown renders a markdown document with glamour. Color
-// output on a terminal, plain rendering when piped; CATT_STYLE
-// overrides the style. The selected style is customized to use a zero
-// document margin. Trailing padding is stripped from the output.
+// useDarkStyle decides whether output is styled ("dark") or plain
+// ("ascii"). CATT_COLOR=yes forces styling on, CATT_COLOR=no forces it
+// off; otherwise styling is used on a terminal and plain output when
+// piped. The same decision applies to markdown and code files so both
+// always share the same styling.
+func useDarkStyle() bool {
+	switch strings.ToLower(os.Getenv("CATT_COLOR")) {
+	case "yes", "y", "true", "1":
+		return true
+	case "no", "n", "false", "0":
+		return false
+	}
+	return isatty.IsTerminal(os.Stdout.Fd())
+}
+
+// renderMarkdown renders a markdown document with glamour. Dark
+// styling on a terminal, ascii rendering when piped; CATT_COLOR=yes/no
+// overrides the detection. The selected style is customized to use a
+// zero document margin. Trailing padding is stripped from the output.
 func renderMarkdown(content string, w io.Writer) error {
 	style := "ascii"
-	if isatty.IsTerminal(os.Stdout.Fd()) {
+	if useDarkStyle() {
 		style = "dark"
-	}
-	if s := os.Getenv("CATT_STYLE"); s != "" {
-		style = s
 	}
 
 	r, err := glamour.NewTermRenderer(
@@ -70,20 +83,22 @@ func stripTrailingPadding(s string) string {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintf(w, `usage: catt [file ...]
+	fmt.Fprint(w, `usage: catt [file ...]
        catt < file
        catt -h | catt --help
 
 Like cat, catt prints any file to stdout. Feed it stdin when no file is given.
 
-Markdown files are converted into pretty output.
+Markdown files are converted into pretty output. Code files are
+printed with syntax highlighting. Both use the same dark styling on a
+terminal and plain output when piped.
 
-Style will use dark by default but automatically switch to ascii when piped.
-Override with CATT_STYLE.
+Set CATT_COLOR=yes to force dark styling even when piped, or
+CATT_COLOR=no to force plain output even on a terminal.
 
 Options:
   -h, --help    show this help
-`, "")
+`)
 }
 
 func main() {
@@ -135,6 +150,9 @@ func catFile(path string, w io.Writer) error {
 
 	if isMarkdown(path) {
 		return renderMarkdown(string(data), w)
+	}
+	if highlightable(path) {
+		return renderCode(path, string(data), w)
 	}
 	_, err = w.Write(data)
 	if err == nil && len(data) > 0 && data[len(data)-1] != '\n' {
