@@ -1,6 +1,6 @@
 module catt
 
-go 1.27.1
+go 1.26.5
 
 require (
 	github.com/charmbracelet/glamour v1.0.0

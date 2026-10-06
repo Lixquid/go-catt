@@ -29,7 +29,8 @@ func isMarkdown(name string) bool {
 
 // renderMarkdown renders a markdown document with glamour. Color
 // output on a terminal, plain rendering when piped; CATT_STYLE
-// overrides the style. Trailing padding is stripped from the output.
+// overrides the style. The selected style is customized to use a zero
+// document margin. Trailing padding is stripped from the output.
 func renderMarkdown(content string, w io.Writer) error {
 	style := "ascii"
 	if isatty.IsTerminal(os.Stdout.Fd()) {
@@ -39,7 +40,18 @@ func renderMarkdown(content string, w io.Writer) error {
 		style = s
 	}
 
-	out, err := glamour.Render(content, style)
+	r, err := glamour.NewTermRenderer(
+		glamour.WithStandardStyle(style),
+		glamour.WithStylesFromJSONBytes([]byte(`{
+    "document": {
+        "margin": 0
+    }
+}`)))
+	if err != nil {
+		return fmt.Errorf("failed to create renderer: %w", err)
+	}
+
+	out, err := r.Render(content)
 	if err != nil {
 		return fmt.Errorf("failed to render markdown: %w", err)
 	}
