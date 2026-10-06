@@ -3,7 +3,8 @@
 // Like cat, it prints any file to output. Files with a markdown
 // extension are rendered with glamour. Code files are printed with
 // syntax highlighting via chroma. PNG, JPEG, and GIF files are displayed
-// as sixel graphics on terminals that support them.
+// as sixel graphics on terminals that support them. Zip and tar
+// archives are listed as a tree of files.
 package main
 
 import (
@@ -92,8 +93,10 @@ Like cat, catt prints any file to stdout. Feed it stdin when no file is given.
 
 Markdown files are converted into pretty output. Code files are
 printed with syntax highlighting. CSV files are rendered as tables,
-identical in appearance to tables from markdown files. All use the
-same dark styling on a terminal and plain output when piped.
+identical in appearance to tables from markdown files. Archive files
+(zip, tar, tgz, tar.gz, tbz, tar.bz2) are listed as a tree of files,
+drawn with grey box-drawing characters. All use the same
+dark styling on a terminal and plain output when piped.
 
 PNG, JPEG, and GIF files are displayed as sixel graphics on terminals
 that support them, and passed through untouched otherwise. Animated
@@ -128,8 +131,13 @@ func main() {
 			usage(os.Stderr)
 			os.Exit(1)
 		}
-		if _, err := io.Copy(os.Stdout, os.Stdin); err != nil {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "catt: could not read stdin: %v\n", err)
+			os.Exit(1)
+		}
+		if err := renderBytes("<stdin>", data, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "catt: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -155,19 +163,28 @@ func catFile(path string, w io.Writer) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
-	if isMarkdown(path) {
+	return renderBytes(path, data, w)
+}
+
+// renderBytes renders already-loaded file contents based on the file
+// name (and, for archives, magic bytes).
+func renderBytes(name string, data []byte, w io.Writer) error {
+	if isMarkdown(name) {
 		return renderMarkdown(string(data), w)
 	}
-	if isImage(path) {
-		return renderImage(path, data, w)
+	if isImage(name) {
+		return renderImage(name, data, w)
 	}
-	if isCSV(path) {
+	if isCSV(name) {
 		return renderCSV(string(data), w)
 	}
-	if highlightable(path) {
-		return renderCode(path, string(data), w)
+	if isArchive(name) || archiveFormat(name, data) != "" {
+		return renderArchive(name, data, w)
 	}
-	_, err = w.Write(data)
+	if highlightable(name) {
+		return renderCode(name, string(data), w)
+	}
+	_, err := w.Write(data)
 	if err == nil && len(data) > 0 && data[len(data)-1] != '\n' {
 		fmt.Fprintln(w)
 	}

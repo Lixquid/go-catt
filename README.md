@@ -9,6 +9,8 @@
   markdown files
 - Pretty-prints code files with syntax highlighting
 - Displays PNG files as sixel graphics on terminals that support them
+- Lists archive contents (zip, tar, tgz, tar.gz, tbz, tar.bz2) as a
+  tree of files drawn with grey box-drawing characters
 - Set `CATT_COLOR=yes` to force dark styling even when piped, or
   `CATT_COLOR=no` to force plain output even on a terminal
 
