@@ -5,6 +5,8 @@
 ## Features
 
 - Renders markdown into pretty formatted output
+- Formats CSV files as tables, identical in appearance to tables from
+  markdown files
 - Pretty-prints code files with syntax highlighting
 - Set `CATT_COLOR=yes` to force dark styling even when piped, or
   `CATT_COLOR=no` to force plain output even on a terminal

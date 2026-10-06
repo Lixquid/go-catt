@@ -90,8 +90,9 @@ func usage(w io.Writer) {
 Like cat, catt prints any file to stdout. Feed it stdin when no file is given.
 
 Markdown files are converted into pretty output. Code files are
-printed with syntax highlighting. Both use the same dark styling on a
-terminal and plain output when piped.
+printed with syntax highlighting. CSV files are rendered as tables,
+identical in appearance to tables from markdown files. All use the
+same dark styling on a terminal and plain output when piped.
 
 Set CATT_COLOR=yes to force dark styling even when piped, or
 CATT_COLOR=no to force plain output even on a terminal.
@@ -150,6 +151,9 @@ func catFile(path string, w io.Writer) error {
 
 	if isMarkdown(path) {
 		return renderMarkdown(string(data), w)
+	}
+	if isCSV(path) {
+		return renderCSV(string(data), w)
 	}
 	if highlightable(path) {
 		return renderCode(path, string(data), w)
