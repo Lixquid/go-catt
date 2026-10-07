@@ -8,19 +8,35 @@ Sleep 500ms
 Enter
 Sleep 2s
 
+Hide
+Type "clear"
+Enter
+Show
+Sleep 250ms
+
 Type "catt go.go"
 Sleep 500ms
 Enter
 Sleep 2s
+
+Hide
+Type "clear"
+Enter
+Show
+Sleep 250ms
 
 Type "catt zip.zip"
 Sleep 500ms
 Enter
 Sleep 2s
 
+Hide
+Type "clear"
+Enter
+Show
+Sleep 250ms
+
 Type "catt csv.csv"
 Sleep 500ms
 Enter
 Sleep 2s
-
-Sleep 3s
