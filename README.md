@@ -2,8 +2,6 @@
   <img src="misc/logo.svg" alt="catt logo" width="280">
 </p>
 
-<h1 align="center">catt</h1>
-
 <p align="center">
   <code>cat</code> for humans.
 </p>
