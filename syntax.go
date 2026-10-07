@@ -16,23 +16,20 @@ import (
 // markdown style so code files and markdown code blocks look the same.
 const defaultCodeStyle = cattDarkStyleName
 
-// highlightable reports whether chroma has a lexer registered for the
-// file's name (by extension or well-known filename, e.g. Makefile).
-func highlightable(name string) bool {
-	return lexers.Match(name) != nil
-}
-
 // renderCode pretty-prints a source file with syntax highlighting.
 // Color output on a terminal (style "native", matching the dark
 // styling used for markdown), plain passthrough like cat when piped;
 // CATT_COLOR=yes/no forces color on or off.
+//
+// Files chroma has no lexer for are passed through untouched, like
+// cat, so arbitrary text is never recolored.
 func renderCode(filename, content string, w io.Writer) error {
 	lexer := lexers.Match(filename)
 	if lexer == nil {
 		lexer = lexers.Analyse(content)
 	}
 	if lexer == nil {
-		lexer = lexers.Fallback
+		return passthrough(w, []byte(content))
 	}
 	lexer = chroma.Coalesce(lexer)
 

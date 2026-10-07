@@ -115,7 +115,7 @@ func scaledSize(srcW, srcH int) (width, height int) {
 }
 
 // terminalPixelWidth returns the usable width of the terminal in device
-// pixels, or 0 when it cannot be determined. It combines the cell size
+// pixels, or fallbackSixelWidth when it cannot be determined. It combines the cell size
 // reported by the terminal with the window size in characters, so
 // margins are respected where the terminal supports it.
 func terminalPixelWidth() int {

@@ -87,9 +87,11 @@ func stripTrailingPadding(s string) string {
 func usage(w io.Writer) {
 	fmt.Fprint(w, `usage: catt [file ...]
        catt < file
+       catt -
        catt -h | catt --help
 
-Like cat, catt prints any file to stdout. Feed it stdin when no file is given.
+Like cat, catt prints any file to stdout. Feed it stdin when no file is
+given, or pass "-" explicitly as a file name.
 
 Markdown files are converted into pretty output. Code files are
 printed with syntax highlighting. CSV files are rendered as tables,
@@ -119,36 +121,47 @@ func main() {
 			usage(os.Stdout)
 			return
 		}
-		if strings.HasPrefix(a, "-") {
+		if strings.HasPrefix(a, "-") && a != "-" {
 			fmt.Fprintf(os.Stderr, "catt: unknown flag %q\n", a)
 			os.Exit(1)
 		}
 	}
 
+	// Like cat, keep going after a failed file so the remaining
+	// arguments are still processed; exit non-zero at the end.
+	exitCode := 0
 	if len(args) == 0 {
-		// No file: read stdin like cat does.
-		if isatty.IsTerminal(os.Stdin.Fd()) {
-			usage(os.Stderr)
-			os.Exit(1)
-		}
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "catt: could not read stdin: %v\n", err)
-			os.Exit(1)
-		}
-		if err := renderBytes("<stdin>", data, os.Stdout); err != nil {
+		if err := catStdin(); err != nil {
 			fmt.Fprintf(os.Stderr, "catt: %v\n", err)
-			os.Exit(1)
+			exitCode = 1
 		}
-		return
 	}
-
 	for _, path := range args {
-		if err := catFile(path, os.Stdout); err != nil {
+		var err error
+		if path == "-" {
+			err = catStdin()
+		} else {
+			err = catFile(path, os.Stdout)
+		}
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "catt: %v\n", err)
-			os.Exit(1)
+			exitCode = 1
 		}
 	}
+	os.Exit(exitCode)
+}
+
+// catStdin reads stdin and renders it, like cat with no file argument.
+func catStdin() error {
+	if isatty.IsTerminal(os.Stdin.Fd()) {
+		usage(os.Stderr)
+		os.Exit(1)
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("could not read stdin: %w", err)
+	}
+	return renderBytes("<stdin>", data, os.Stdout)
 }
 
 func catFile(path string, w io.Writer) error {
@@ -178,15 +191,8 @@ func renderBytes(name string, data []byte, w io.Writer) error {
 	if isCSV(name) {
 		return renderCSV(string(data), w)
 	}
-	if isArchive(name) || archiveFormat(name, data) != "" {
+	if archiveFormat(name, data) != "" {
 		return renderArchive(name, data, w)
 	}
-	if highlightable(name) {
-		return renderCode(name, string(data), w)
-	}
-	_, err := w.Write(data)
-	if err == nil && len(data) > 0 && data[len(data)-1] != '\n' {
-		fmt.Fprintln(w)
-	}
-	return err
+	return renderCode(name, string(data), w)
 }

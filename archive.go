@@ -16,20 +16,6 @@ import (
 	"strings"
 )
 
-var archiveExtensions = map[string]bool{
-	".zip":   true,
-	".tar":   true,
-	".tgz":   true,
-	".tar.gz": true,
-	".tbz":   true,
-	".tbz2":  true,
-	".tar.bz2": true,
-}
-
-func isArchive(name string) bool {
-	return archiveExtensions[strings.ToLower(name)]
-}
-
 // archiveFormat identifies an archive by extension, falling back to
 // magic bytes so that misnamed files (and stdin input) still work.
 // gzip/bzip2 data is assumed to contain a tar archive.
@@ -129,12 +115,13 @@ func buildTree(entries []string) *node {
 	for _, e := range entries {
 		e = strings.TrimPrefix(e, "./")
 		e = strings.TrimPrefix(e, "/")
+		wasDir := strings.HasSuffix(e, "/")
 		e = strings.TrimSuffix(e, "/")
 		if e == "" || e == "." {
 			continue
 		}
-		// Drop any Windows drive prefix from zip entries.
-		if len(e) > 2 && e[1] == ':' {
+		// Drop any Windows drive prefix (e.g. "C:/") from zip entries.
+		if len(e) > 3 && e[1] == ':' && (e[2] == '/' || e[2] == '\\') && isASCIIAlpha(e[0]) {
 			e = e[3:]
 		}
 		cur := root
@@ -148,13 +135,18 @@ func buildTree(entries []string) *node {
 				child = &node{name: part, children: map[string]*node{}}
 				cur.children[part] = child
 			}
-			if i == len(parts)-1 && strings.HasSuffix(e, "/") || i < len(parts)-1 {
+			if i < len(parts)-1 || (i == len(parts)-1 && wasDir) {
 				child.isDir = true
 			}
 			cur = child
 		}
 	}
 	return root
+}
+
+// isASCIIAlpha reports whether c is an ASCII letter.
+func isASCIIAlpha(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // printTree writes the tree: directories first, then files, each
