@@ -60,12 +60,11 @@ func renderCSV(content string, w io.Writer) error {
 	return nil
 }
 
-// renderCSVTable renders records as a lipgloss table wrapped like a
-// glamour document block: a leading newline with a padded blank line
-// (the document block prefix), every line padded out to the wrap width
-// (glamour's MarginWriter padding), and a trailing newline (the
-// document block suffix). The result matches the output of rendering
-// the equivalent markdown table through glamour.
+// renderCSVTable renders records as a lipgloss table padded like a
+// glamour document block: every line padded out to the wrap width
+// (glamour's MarginWriter padding). Unlike a glamour markdown block,
+// no leading blank line or trailing newline is emitted; the output
+// starts at the table's first line and ends at its last.
 func renderCSVTable(records [][]string, dark bool) string {
 	width := 0
 	for _, row := range records {
@@ -123,14 +122,12 @@ func renderCSVTable(records [][]string, dark bool) string {
 	body := t.String()
 
 	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(padCSVLine("", dark))
-	b.WriteString("\n")
-	for _, line := range strings.Split(body, "\n") {
+	for i, line := range strings.Split(body, "\n") {
+		if i > 0 {
+			b.WriteString("\n")
+		}
 		b.WriteString(padCSVLine(line, dark))
-		b.WriteString("\n")
 	}
-	b.WriteString("\n")
 	return b.String()
 }
 

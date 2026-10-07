@@ -84,6 +84,14 @@ func TestRenderCSVPlain(t *testing.T) {
 	if strings.Index(out, "alice") > strings.Index(out, "bob") {
 		t.Errorf("rows out of order: %q", out)
 	}
+	// No leading or trailing newlines: output starts and ends at the
+	// table's own border lines.
+	if strings.HasPrefix(out, "\n") {
+		t.Errorf("renderCSV output has a leading newline: %q", out)
+	}
+	if strings.HasSuffix(out, "\n") {
+		t.Errorf("renderCSV output has a trailing newline: %q", out)
+	}
 }
 
 // Cells must be treated as raw CSV data: markdown syntax is displayed
