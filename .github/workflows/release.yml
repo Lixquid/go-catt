@@ -46,25 +46,22 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: "0"
         run: |
-          version="${GITHUB_REF_NAME#v}"
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          output="catt-${GOOS}-${GOARCH}${ext}"
-          go build -trimpath -ldflags "-s -w" -o "$output" .
-          echo "OUTPUT=$output" >> "$GITHUB_ENV"
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" -o "dist/catt${ext}" .
+          echo "BINARY=catt${ext}" >> "$GITHUB_ENV"
 
       - name: Package (tar.gz)
         if: matrix.os != 'windows'
         run: |
-          mkdir -p dist
-          tar -czf "dist/catt-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" "$OUTPUT"
+          tar -czf "dist/catt-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" -C dist "$BINARY"
           sha256sum "dist/catt-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" > "dist/catt-${{ matrix.os }}-${{ matrix.arch }}.tar.gz.sha256"
 
       - name: Package (zip)
         if: matrix.os == 'windows'
         run: |
-          mkdir -p dist
-          zip -q "dist/catt-${{ matrix.os }}-${{ matrix.arch }}.zip" "$OUTPUT"
+          (cd dist && zip -q "catt-${{ matrix.os }}-${{ matrix.arch }}.zip" "$BINARY")
           sha256sum "dist/catt-${{ matrix.os }}-${{ matrix.arch }}.zip" > "dist/catt-${{ matrix.os }}-${{ matrix.arch }}.zip.sha256"
 
       - name: Upload artifacts
