@@ -114,54 +114,58 @@ Options:
 }
 
 func main() {
-	args := os.Args[1:]
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
 
+// run implements the catt command line and returns the process exit
+// code. stdin is read when there are no file arguments or when "-" is
+// given; like cat, run keeps going after a failed file so the
+// remaining arguments are still processed, and the exit code is
+// non-zero if anything failed.
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
-			usage(os.Stdout)
-			return
+			usage(stdout)
+			return 0
 		}
 		if strings.HasPrefix(a, "-") && a != "-" {
-			fmt.Fprintf(os.Stderr, "catt: unknown flag %q\n", a)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "catt: unknown flag %q\n", a)
+			return 1
 		}
 	}
 
-	// Like cat, keep going after a failed file so the remaining
-	// arguments are still processed; exit non-zero at the end.
+	catIn := func() error {
+		if f, ok := stdin.(*os.File); ok && isatty.IsTerminal(f.Fd()) {
+			usage(stderr)
+			os.Exit(1)
+		}
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return fmt.Errorf("could not read stdin: %w", err)
+		}
+		return renderBytes("<stdin>", data, stdout)
+	}
+
 	exitCode := 0
 	if len(args) == 0 {
-		if err := catStdin(); err != nil {
-			fmt.Fprintf(os.Stderr, "catt: %v\n", err)
+		if err := catIn(); err != nil {
+			fmt.Fprintf(stderr, "catt: %v\n", err)
 			exitCode = 1
 		}
 	}
 	for _, path := range args {
 		var err error
 		if path == "-" {
-			err = catStdin()
+			err = catIn()
 		} else {
-			err = catFile(path, os.Stdout)
+			err = catFile(path, stdout)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "catt: %v\n", err)
+			fmt.Fprintf(stderr, "catt: %v\n", err)
 			exitCode = 1
 		}
 	}
-	os.Exit(exitCode)
-}
-
-// catStdin reads stdin and renders it, like cat with no file argument.
-func catStdin() error {
-	if isatty.IsTerminal(os.Stdin.Fd()) {
-		usage(os.Stderr)
-		os.Exit(1)
-	}
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		return fmt.Errorf("could not read stdin: %w", err)
-	}
-	return renderBytes("<stdin>", data, os.Stdout)
+	return exitCode
 }
 
 func catFile(path string, w io.Writer) error {
