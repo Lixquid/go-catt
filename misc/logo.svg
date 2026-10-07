@@ -2,9 +2,9 @@
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
 
 <svg
-   width="17.5"
+   width="16.4"
    height="8"
-   viewBox="0 0 17.5 8"
+   viewBox="0 0 16.4 8"
    version="1.1"
    id="svg1"
    inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
@@ -24,9 +24,9 @@
      inkscape:deskcolor="#505050"
      inkscape:document-units="px"
      showgrid="true"
-     inkscape:zoom="45.254834"
-     inkscape:cx="9.291825"
-     inkscape:cy="3.2151261"
+     inkscape:zoom="64"
+     inkscape:cx="8.5234375"
+     inkscape:cy="4.0078125"
      inkscape:window-width="2560"
      inkscape:window-height="1366"
      inkscape:window-x="0"
@@ -73,14 +73,14 @@
     <circle
        style="fill:none;stroke:#ebdbb2;stroke-width:0.5"
        id="path2-4"
-       cx="10.499998"
+       cx="9.8999958"
        cy="6"
        r="1.75" />
     <path
        style="fill:none;stroke:#ebdbb2;stroke-width:0.5"
        id="path5-0"
        sodipodi:type="arc"
-       sodipodi:cx="15.499996"
+       sodipodi:cx="14.399993"
        sodipodi:cy="5.75"
        sodipodi:rx="2"
        sodipodi:ry="2"
@@ -88,19 +88,20 @@
        sodipodi:end="3.1415927"
        sodipodi:open="true"
        sodipodi:arc-type="arc"
-       d="M 15.499996,7.75 A 2,2 0 0 1 14.085783,7.1642135 2,2 0 0 1 13.499996,5.75" />
+       d="M 14.399993,7.75 A 2,2 0 0 1 12.985779,7.1642135 2,2 0 0 1 12.399993,5.75" />
     <path
        style="fill:none;stroke:#ebdbb2;stroke-width:0.5"
-       d="M 12.249999,4 V 8"
+       d="M 11.649999,4 V 8"
        id="path7" />
     <path
        style="fill:none;stroke:#ebdbb2;stroke-width:0.5"
-       d="M 13.5,1 V 5.75"
+       d="M 12.4,1 V 5.75"
        id="path8"
        sodipodi:nodetypes="cc" />
     <g
        id="g11"
-       style="stroke:#fe8019">
+       style="stroke:#fe8019"
+       transform="translate(-1.1)">
       <path
          style="fill:none;stroke:#fe8019;stroke-width:0.5"
          id="path6-8"
@@ -127,7 +128,7 @@
     </g>
     <path
        style="fill:none;stroke:#ebdbb2;stroke-width:0.5"
-       d="m 12,2.25 h 3"
+       d="m 10.9,2.25 h 3"
        id="path10"
        sodipodi:nodetypes="cc" />
   </g>
