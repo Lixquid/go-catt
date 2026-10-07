@@ -1,6 +1,14 @@
-# catt
+<p align="center">
+  <img src="misc/logo.svg" alt="catt logo" width="280">
+</p>
 
-`cat` for humans.
+<h1 align="center">catt</h1>
+
+<p align="center">
+  <code>cat</code> for humans.
+</p>
+
+---
 
 `catt` prints files with rendering or highlighting to make them easier to read
 for humans, not tooling.
