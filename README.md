@@ -6,18 +6,19 @@
   <code>cat</code> for humans.
 </p>
 
----
-
 `catt` prints files with rendering or highlighting to make them easier to read
 for humans, not tooling.
+
+![A demo of catt](misc/demo.gif)
+
+---
 
 ## Features
 
 - Syntax highlights source code files
 - Transforms markdown files into nicely rendered output
 - Turns CSV files into tables
-- Displays PNG, JPG, and GIF files (using sixels on terminals that support
-  them)
+- Displays PNG, JPG, and GIF files (using sixels on terminals that support them)
 - Lists archives as a tree
 
 ## Usage
