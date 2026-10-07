@@ -37,3 +37,7 @@ Otherwise, automatic detection will be used.
 ```
 go build -o catt .
 ```
+
+## AI Disclaimer
+
+This tool was created with AI.
