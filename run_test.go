@@ -28,7 +28,17 @@ func TestRunStdinDash(t *testing.T) {
 // end, like cat.
 func TestRunContinuesAfterFailedFile(t *testing.T) {
 	t.Setenv("CATT_COLOR", "no")
-	good := filepath.Join("examples", "hello.go")
+	// Test data is embedded directly so the test does not depend on
+	// any files outside the repository (the examples/ directory is
+	// not checked in).
+	const goodContent = "// Package main is a tiny example for catt's Go syntax highlighting.\n" +
+		"package main\n\n" +
+		"import (\n\t\"fmt\"\n)\n\n" +
+		"func main() {\n\tfmt.Println(\"hello, world\")\n}\n"
+	good := filepath.Join(t.TempDir(), "hello.go")
+	if err := os.WriteFile(good, []byte(goodContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"/no/such/file", good}, strings.NewReader(""), &stdout, &stderr)
 	if code != 1 {
