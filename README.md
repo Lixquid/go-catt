@@ -1,18 +1,18 @@
 # catt
 
-`catt` (cat themed) is `cat(1)` with pretty outputs.
+`cat` for humans.
+
+`catt` prints files with rendering or highlighting to make them easier to read
+for humans, not tooling.
 
 ## Features
 
-- Renders markdown into pretty formatted output
-- Formats CSV files as tables, identical in appearance to tables from
-  markdown files
-- Pretty-prints code files with syntax highlighting
-- Displays PNG files as sixel graphics on terminals that support them
-- Lists archive contents (zip, tar, tgz, tar.gz, tbz, tar.bz2) as a
-  tree of files drawn with grey box-drawing characters
-- Set `CATT_COLOR=yes` to force dark styling even when piped, or
-  `CATT_COLOR=no` to force plain output even on a terminal
+- Syntax highlights source code files
+- Transforms markdown files into nicely rendered output
+- Turns CSV files into tables
+- Displays PNG, JPG, and GIF files (using sixels on terminals that support
+  them)
+- Lists archives as a tree
 
 ## Usage
 
@@ -21,6 +21,9 @@ catt [file ...]
 catt < file
 catt -h | catt --help
 ```
+
+Set `CATT_COLOR=yes` or `CATT_COLOR=no` to force color outputting on or off.
+Otherwise, automatic detection will be used.
 
 ## Build
 
