@@ -42,9 +42,7 @@ Configuration is done via environment variables:
 - `CATT_IMAGE_PROTOCOL=auto|kitty|sixel|none` controls how images are drawn.
   `auto` (the default) detects the kitty graphics protocol first and falls back
   to sixels; `kitty` and `sixel` force a protocol; `none` passes image bytes
-  through untouched. `CATT_KITTY=yes` is shorthand for
-  `CATT_IMAGE_PROTOCOL=kitty`, and `CATT_KITTY=no` disables kitty detection so
-  `auto` may fall back to sixels.
+  through untouched.
 
 ## Build
 

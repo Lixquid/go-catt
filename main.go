@@ -114,9 +114,7 @@ disables graphics rendering under auto detection).
 
 Set CATT_IMAGE_PROTOCOL=kitty, sixel, or none to force an image
 protocol, or leave it unset (or "auto") to detect the kitty graphics
-protocol and fall back to sixels. CATT_KITTY=yes is a shorthand for
-CATT_IMAGE_PROTOCOL=kitty, and CATT_KITTY=no disables kitty detection
-so auto may fall back to sixels.
+protocol and fall back to sixels.
 
 When output goes to a terminal and is larger than the viewport, it is
 piped through a pager. The pager comes from the PAGER environment

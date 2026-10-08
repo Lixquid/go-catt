@@ -41,12 +41,8 @@ var (
 
 // useKitty reports whether image files should be drawn with the kitty
 // graphics protocol. It requires stdout to be a terminal and the
-// terminal to answer the protocol's support query. CATT_KITTY=no always
-// disables it.
+// terminal to answer the protocol's support query.
 func useKitty() bool {
-	if kittyDisabled() {
-		return false
-	}
 	kittyOnce.Do(func() {
 		if !isatty.IsTerminal(os.Stdout.Fd()) {
 			return

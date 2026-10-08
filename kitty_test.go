@@ -21,8 +21,6 @@ func TestConfiguredImageProtocol(t *testing.T) {
 		{map[string]string{"CATT_IMAGE_PROTOCOL": "auto"}, protocolAuto},
 		// Protocol variable wins, in all its spellings.
 		{map[string]string{"CATT_IMAGE_PROTOCOL": "kitty"}, protocolKitty},
-		{map[string]string{"CATT_IMAGE": "kitty"}, protocolKitty},
-		{map[string]string{"CATT_GRAPHICS": "kitty"}, protocolKitty},
 		{map[string]string{"CATT_IMAGE_PROTOCOL": "sixel"}, protocolSixel},
 		{map[string]string{"CATT_IMAGE_PROTOCOL": "none"}, protocolNone},
 		{map[string]string{"CATT_IMAGE_PROTOCOL": "raw"}, protocolNone},
@@ -30,49 +28,17 @@ func TestConfiguredImageProtocol(t *testing.T) {
 		{map[string]string{"CATT_IMAGE_PROTOCOL": " sixel "}, protocolSixel},
 		// Unrecognized values leave the choice to detection.
 		{map[string]string{"CATT_IMAGE_PROTOCOL": "bogus"}, protocolAuto},
-		// CATT_KITTY=yes is shorthand for forcing kitty.
-		{map[string]string{"CATT_KITTY": "yes"}, protocolKitty},
-		{map[string]string{"CATT_KITTY": "1"}, protocolKitty},
-		{map[string]string{"CATT_KITTY": "kitty"}, protocolKitty},
-		// CATT_KITTY=no only disables detection; it does not force a
-		// protocol, so sixels remain a fallback.
-		{map[string]string{"CATT_KITTY": "no"}, protocolAuto},
-		// The protocol variable takes precedence over the shorthand.
-		{map[string]string{"CATT_KITTY": "yes", "CATT_IMAGE_PROTOCOL": "sixel"}, protocolSixel},
 	}
 	for _, tt := range tests {
 		// t.Setenv values persist for the rest of the test, so start
 		// each case from a clean slate.
-		for _, name := range []string{"CATT_IMAGE_PROTOCOL", "CATT_IMAGE", "CATT_GRAPHICS", "CATT_KITTY"} {
-			t.Setenv(name, "")
-			os.Unsetenv(name)
-		}
+		t.Setenv("CATT_IMAGE_PROTOCOL", "")
+		os.Unsetenv("CATT_IMAGE_PROTOCOL")
 		for name, value := range tt.env {
 			t.Setenv(name, value)
 		}
 		if got := configuredImageProtocol(); got != tt.want {
 			t.Errorf("configuredImageProtocol(%v) = %d, want %d", tt.env, got, tt.want)
-		}
-	}
-}
-
-func TestKittyDisabled(t *testing.T) {
-	tests := []struct {
-		value string
-		want  bool
-	}{
-		{"", false},
-		{"no", true},
-		{"0", true},
-		{"false", true},
-		{"off", true},
-		{"yes", false},
-		{"bogus", false},
-	}
-	for _, tt := range tests {
-		t.Setenv("CATT_KITTY", tt.value)
-		if got := kittyDisabled(); got != tt.want {
-			t.Errorf("kittyDisabled(%q) = %v, want %v", tt.value, got, tt.want)
 		}
 	}
 }

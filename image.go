@@ -76,34 +76,17 @@ const (
 
 // configuredImageProtocol returns the image protocol requested through
 // the environment. CATT_IMAGE_PROTOCOL accepts auto, kitty, sixel, or
-// none; CATT_KITTY=yes is accepted as a shorthand that forces the kitty
-// protocol. Anything unrecognized leaves the choice to detection.
+// none. Anything unrecognized leaves the choice to detection.
 func configuredImageProtocol() imageProtocol {
-	for _, name := range []string{"CATT_IMAGE_PROTOCOL", "CATT_IMAGE", "CATT_GRAPHICS"} {
-		switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
-		case "kitty":
-			return protocolKitty
-		case "sixel":
-			return protocolSixel
-		case "none", "off", "no", "raw":
-			return protocolNone
-		}
-	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("CATT_KITTY"))) {
-	case "yes", "y", "true", "1", "on", "force", "kitty":
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CATT_IMAGE_PROTOCOL"))) {
+	case "kitty":
 		return protocolKitty
+	case "sixel":
+		return protocolSixel
+	case "none", "off", "no", "raw":
+		return protocolNone
 	}
 	return protocolAuto
-}
-
-// kittyDisabled reports whether CATT_KITTY=no was set, in which case
-// automatic detection skips the kitty protocol and may still use sixel.
-func kittyDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("CATT_KITTY"))) {
-	case "no", "n", "false", "0", "off":
-		return true
-	}
-	return false
 }
 
 // renderImage decodes an image file and displays it using the selected
@@ -140,7 +123,7 @@ func renderImage(filename string, data []byte, w io.Writer) error {
 	case protocolSixel:
 		return renderImageAsSixel(img, w)
 	default:
-		if !kittyDisabled() && useKitty() {
+		if useKitty() {
 			return renderImageAsKitty(img, w)
 		}
 		if useSixel() {
