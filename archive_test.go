@@ -88,10 +88,16 @@ func buildTreeChildren(t *testing.T, n *node, path ...string) *node {
 }
 
 func TestBuildTreeBasic(t *testing.T) {
-	root := buildTree([]string{"dir/file.txt", "other.txt"})
+	root := buildTree([]archiveEntry{
+		{"dir/file.txt", 2048},
+		{"other.txt", 7},
+	})
 	f := buildTreeChildren(t, root, "dir", "file.txt")
 	if f.isDir {
 		t.Error("dir/file.txt should not be a directory")
+	}
+	if f.size != 2048 {
+		t.Errorf("dir/file.txt size = %d, want 2048", f.size)
 	}
 	// The parent directory is created implicitly and marked as a dir.
 	if !buildTreeChildren(t, root, "dir").isDir {
@@ -101,13 +107,16 @@ func TestBuildTreeBasic(t *testing.T) {
 	if other.isDir {
 		t.Error("other.txt should not be a directory")
 	}
+	if other.size != 7 {
+		t.Errorf("other.txt size = %d, want 7", other.size)
+	}
 }
 
 // TestBuildTreeDirEntry is a regression test: directory entries
 // ("name/") used to be recorded as files because the trailing "/" was
 // trimmed before the directory check ran.
 func TestBuildTreeDirEntry(t *testing.T) {
-	root := buildTree([]string{"src/"})
+	root := buildTree([]archiveEntry{{"src/", 0}})
 	if !buildTreeChildren(t, root, "src").isDir {
 		t.Error(`entry "src/" should be marked as a directory`)
 	}
@@ -116,7 +125,7 @@ func TestBuildTreeDirEntry(t *testing.T) {
 func TestBuildTreePrefixes(t *testing.T) {
 	// "./" and leading "/" prefixes are stripped, and ".." components
 	// are dropped entirely.
-	root := buildTree([]string{"./x.txt", "/y.txt", "../etc/passwd", "./"})
+	root := buildTree([]archiveEntry{{"./x.txt", 1}, {"/y.txt", 2}, {"../etc/passwd", 3}, {"./", 0}})
 	buildTreeChildren(t, root, "x.txt")
 	buildTreeChildren(t, root, "y.txt")
 	if len(root.children) != 2 {
@@ -129,7 +138,7 @@ func TestBuildTreePrefixes(t *testing.T) {
 // ":", mangling names like "a:b.txt"; now a real "X:/" (or "X:\\")
 // drive prefix is required.
 func TestBuildTreeDrivePrefix(t *testing.T) {
-	root := buildTree([]string{"C:/Users/file.txt", "a:b.txt", "12:30/x"})
+	root := buildTree([]archiveEntry{{"C:/Users/file.txt", 1}, {"a:b.txt", 2}, {"12:30/x", 3}})
 	buildTreeChildren(t, root, "Users", "file.txt")
 	buildTreeChildren(t, root, "a:b.txt")
 	buildTreeChildren(t, root, "12:30", "x")
@@ -209,10 +218,10 @@ func TestRenderArchive(t *testing.T) {
 		data []byte
 		want string
 	}{
-		{"x.zip", makeTestZip(t), "└─ dir/\n   └─ hello.txt\n"},
-		{"x.tgz", makeTestTgz(t), "└─ dir/\n   └─ hello.txt\n"},
+		{"x.zip", makeTestZip(t), "└─ dir/\n   └─ hello.txt (2B)\n"},
+		{"x.tgz", makeTestTgz(t), "└─ dir/\n   └─ hello.txt (2B)\n"},
 		// Magic bytes win over the (non-archive) extension.
-		{"x.bin", makeTestZip(t), "└─ dir/\n   └─ hello.txt\n"},
+		{"x.bin", makeTestZip(t), "└─ dir/\n   └─ hello.txt (2B)\n"},
 	}
 	for _, tt := range tests {
 		var buf bytes.Buffer
@@ -232,12 +241,50 @@ func TestRenderArchiveUnrecognized(t *testing.T) {
 	}
 }
 
+func TestArchiveSizeString(t *testing.T) {
+	// Byte counts render with at most three digits plus a unit suffix.
+	tests := []struct {
+		size int64
+		want string
+	}{
+		{0, "0B"},
+		{2, "2B"},
+		{723, "723B"},
+		{999, "999B"},
+		{1000, "1.00KB"},
+		{2560, "2.56KB"},
+		{2560000, "2.56MB"},
+		{123400000, "123MB"},
+		{2560000000, "2.56GB"},
+		{1099511627776, "1.10TB"},
+	}
+	for _, tt := range tests {
+		if got := archiveSizeString(tt.size); got != tt.want {
+			t.Errorf("archiveSizeString(%d) = %q, want %q", tt.size, got, tt.want)
+		}
+	}
+}
+
+func TestRenderArchiveStyledSizes(t *testing.T) {
+	// With styling enabled the size is wrapped in darker grey codes;
+	// zip sizes come from the central directory (UncompressedSize64).
+	t.Setenv("CATT_COLOR", "yes")
+	var buf bytes.Buffer
+	if err := renderArchiveBytes("x.zip", makeTestZip(t), &buf); err != nil {
+		t.Fatal(err)
+	}
+	want := "\x1b[90m└─\x1b[0m dir/\n\x1b[90m   └─\x1b[0m hello.txt \x1b[38;5;238m(2B)\x1b[0m\n"
+	if got := buf.String(); got != want {
+		t.Errorf("styled tree = %q, want %q", got, want)
+	}
+}
+
 func TestPrintTreeOrdering(t *testing.T) {
 	// Directories come before files, both case-insensitively sorted.
-	root := buildTree([]string{"Beta.txt", "apple/", "alpha.txt"})
+	root := buildTree([]archiveEntry{{"Beta.txt", 0}, {"apple/", 0}, {"alpha.txt", 0}})
 	var buf bytes.Buffer
-	printTree(root, &buf, "", "", "")
-	want := "├─ apple/\n├─ alpha.txt\n└─ Beta.txt\n"
+	printTree(root, &buf, "", "", "", "")
+	want := "├─ apple/\n├─ alpha.txt (0B)\n└─ Beta.txt (0B)\n"
 	if got := buf.String(); got != want {
 		t.Errorf("printTree = %q, want %q", got, want)
 	}
@@ -246,10 +293,10 @@ func TestPrintTreeOrdering(t *testing.T) {
 func TestPrintTreeGuides(t *testing.T) {
 	// Directories that have following siblings draw a vertical guide
 	// under them; the last one gets blank padding.
-	root := buildTree([]string{"a/1.txt", "b/2.txt", "c.txt"})
+	root := buildTree([]archiveEntry{{"a/1.txt", 0}, {"b/2.txt", 0}, {"c.txt", 0}})
 	var buf bytes.Buffer
-	printTree(root, &buf, "", "", "")
-	want := "├─ a/\n│  └─ 1.txt\n├─ b/\n│  └─ 2.txt\n└─ c.txt\n"
+	printTree(root, &buf, "", "", "", "")
+	want := "├─ a/\n│  └─ 1.txt (0B)\n├─ b/\n│  └─ 2.txt (0B)\n└─ c.txt (0B)\n"
 	if got := buf.String(); got != want {
 		t.Errorf("printTree = %q, want %q", got, want)
 	}
@@ -258,10 +305,10 @@ func TestPrintTreeGuides(t *testing.T) {
 func TestPrintTreeGreyGuides(t *testing.T) {
 	// When styling is enabled the box-drawing guides are wrapped in
 	// grey ANSI codes, the names are not.
-	root := buildTree([]string{"x.txt"})
+	root := buildTree([]archiveEntry{{"x.txt", 0}})
 	var buf bytes.Buffer
-	printTree(root, &buf, "", "\x1b[90m", "\x1b[0m")
-	want := "\x1b[90m└─\x1b[0m x.txt\n"
+	printTree(root, &buf, "", "\x1b[90m", "\x1b[38;5;238m", "\x1b[0m")
+	want := "\x1b[90m└─\x1b[0m x.txt \x1b[38;5;238m(0B)\x1b[0m\n"
 	if got := buf.String(); got != want {
 		t.Errorf("printTree = %q, want %q", got, want)
 	}

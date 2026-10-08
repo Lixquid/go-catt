@@ -111,11 +111,19 @@ func renderArchiveStream(name, format string, r io.Reader, w io.Writer) error {
 	return renderArchive(archiveSource{name: name, format: format, ra: tf, size: size}, w)
 }
 
+// archiveEntry is one flat entry read from an archive: its path name
+// (as stored, possibly with a trailing "/" for directories) and the
+// uncompressed size of its contents.
+type archiveEntry struct {
+	name string
+	size int64
+}
+
 // renderArchive lists the files in an archive as a tree, directories
 // suffixed with "/", drawn with box-drawing characters and each level
-// indented by 2 spaces.
+// indented by 2 spaces. Files are suffixed with their size in brackets.
 func renderArchive(src archiveSource, w io.Writer) error {
-	var entries []string
+	var entries []archiveEntry
 	switch src.format {
 	case "zip":
 		zr, err := zip.NewReader(src.ra, src.size)
@@ -123,7 +131,7 @@ func renderArchive(src archiveSource, w io.Writer) error {
 			return fmt.Errorf("%s: failed to read zip: %w", src.name, err)
 		}
 		for _, f := range zr.File {
-			entries = append(entries, f.Name)
+			entries = append(entries, archiveEntry{name: f.Name, size: int64(f.UncompressedSize64)})
 		}
 	case "tar":
 		tr := tar.NewReader(archiveTarInput(src.r))
@@ -135,20 +143,50 @@ func renderArchive(src archiveSource, w io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("%s: failed to read tar: %w", src.name, err)
 			}
-			entries = append(entries, hdr.Name)
+			entries = append(entries, archiveEntry{name: hdr.Name, size: hdr.Size})
 		}
 	default:
 		return fmt.Errorf("%s: unrecognized archive format", src.name)
 	}
 
-	// Grey the box-drawing guides when output is styled, plain when
-	// piped; CATT_COLOR=yes/no overrides, same as the other renderers.
-	grey, reset := "", ""
+	// Grey the box-drawing guides and darken file sizes when output is
+	// styled, plain when piped; CATT_COLOR=yes/no overrides, same as the
+	// other renderers.
+	grey, dark, reset := "", "", ""
 	if useDarkStyle() {
-		grey, reset = "\x1b[90m", "\x1b[0m"
+		grey, dark, reset = "\x1b[90m", "\x1b[38;5;243m", "\x1b[0m"
 	}
-	printTree(buildTree(entries), w, "", grey, reset)
+	printTree(buildTree(entries), w, "", grey, dark, reset)
 	return nil
+}
+
+// archiveSizeString renders a byte count in at most three digits plus
+// a decimal unit suffix, e.g. "2B", "723B", "2.45MB", "123GB".
+func archiveSizeString(size int64) string {
+	if size < 1000 {
+		return fmt.Sprintf("%dB", size)
+	}
+	units := []string{"KB", "MB", "GB", "TB", "PB", "EB"}
+	v := float64(size)
+	i := -1
+	for v >= 1000 && i < len(units)-1 {
+		v /= 1000
+		i++
+	}
+	// Rounding can push the value back up to the next unit (999.5KB
+	// displays as "1MB"); re-scale so at most three digits remain.
+	if v >= 999.5 && i < len(units)-1 {
+		v /= 1000
+		i++
+	}
+	switch {
+	case v >= 99.5:
+		return fmt.Sprintf("%.0f%s", v, units[i])
+	case v >= 9.95:
+		return fmt.Sprintf("%.1f%s", v, units[i])
+	default:
+		return fmt.Sprintf("%.2f%s", v, units[i])
+	}
 }
 
 // archiveTarInput wraps a tar-family stream, transparently
@@ -168,21 +206,23 @@ func archiveTarInput(r io.Reader) io.Reader {
 	return br
 }
 
-// node is one entry in the archive tree.
+// node is one entry in the archive tree. size is the uncompressed
+// file size (0 for directories, which are never sized).
 type node struct {
 	name     string
 	isDir    bool
+	size     int64
 	children map[string]*node
 }
 
-// buildTree turns flat archive entry names into a nested tree. Names
-// are cleaned of "./" prefixes and drive/absolute prefixes; directory
+// buildTree turns flat archive entries into a nested tree. Names are
+// cleaned of "./" prefixes and drive/absolute prefixes; directory
 // entries are recorded as directories, and parent directories are
 // created implicitly for deeper paths.
-func buildTree(entries []string) *node {
+func buildTree(entries []archiveEntry) *node {
 	root := &node{name: "", isDir: true, children: map[string]*node{}}
-	for _, e := range entries {
-		e = strings.TrimPrefix(e, "./")
+	for _, entry := range entries {
+		e := strings.TrimPrefix(entry.name, "./")
 		e = strings.TrimPrefix(e, "/")
 		wasDir := strings.HasSuffix(e, "/")
 		e = strings.TrimSuffix(e, "/")
@@ -204,6 +244,9 @@ func buildTree(entries []string) *node {
 				child = &node{name: part, children: map[string]*node{}}
 				cur.children[part] = child
 			}
+			if i == len(parts)-1 && !wasDir {
+				child.size = entry.size
+			}
 			if i < len(parts)-1 || (i == len(parts)-1 && wasDir) {
 				child.isDir = true
 			}
@@ -222,8 +265,9 @@ func isASCIIAlpha(c byte) bool {
 // alphabetically, with 3-character cells per level: branch markers
 // (├─, └─ plus a space) before names, vertical guides (│) plus padding
 // under directories that have following siblings, and blank padding
-// otherwise.
-func printTree(n *node, w io.Writer, prefix, grey, reset string) {
+// otherwise. Files are suffixed with their size in brackets, drawn in
+// the darker grey.
+func printTree(n *node, w io.Writer, prefix, grey, dark, reset string) {
 	names := make([]string, 0, len(n.children))
 	for name := range n.children {
 		names = append(names, name)
@@ -248,9 +292,13 @@ func printTree(n *node, w io.Writer, prefix, grey, reset string) {
 			if i == len(names)-1 {
 				cont = "   "
 			}
-			printTree(child, w, prefix+cont, grey, reset)
+			printTree(child, w, prefix+cont, grey, dark, reset)
 		} else {
-			fmt.Fprintf(w, "%s%s%s%s %s\n", grey, prefix, branch, reset, name)
+			size := fmt.Sprintf("(%s)", archiveSizeString(child.size))
+			if dark != "" {
+				size = dark + size + reset
+			}
+			fmt.Fprintf(w, "%s%s%s%s %s %s\n", grey, prefix, branch, reset, name, size)
 		}
 	}
 }
