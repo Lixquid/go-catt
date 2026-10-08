@@ -109,6 +109,11 @@ Set CATT_COLOR=yes to force dark styling even when piped, or
 CATT_COLOR=no to force plain output even on a terminal (which also
 disables sixel rendering).
 
+When output goes to a terminal and is larger than the viewport, it is
+piped through a pager. The pager comes from the PAGER environment
+variable (which may include arguments) and defaults to less. Set
+CATT_PAGE=yes to always paginate, or CATT_PAGE=no to never paginate.
+
 Set CATT_MAX_ARCHIVE_SIZE (e.g. 10MB, 500KB, or a plain byte count)
 to skip archives that would need decompressing (tgz, tar.gz, tbz,
 tar.bz2) or spooling to disk (zip fed over stdin) when they exceed
@@ -141,6 +146,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// Output larger than the terminal viewport is paged; see
+	// newPagerWriter for the automatic decision and CATT_PAGE.
+	out := newPagerWriter(stdout)
+
 	catIn := func() error {
 		if f, ok := stdin.(*os.File); ok && isatty.IsTerminal(f.Fd()) {
 			usage(stderr)
@@ -153,7 +162,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return fmt.Errorf("could not read stdin: %w", err)
 		}
-		return renderStream("<stdin>", head[:n], stdin, stdout)
+		return renderStream("<stdin>", head[:n], stdin, out)
 	}
 
 	exitCode := 0
@@ -164,16 +173,23 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 	for _, path := range args {
+		// Each file makes its own pagination decision, so a short
+		// file after a long one still prints directly.
+		out.reset()
 		var err error
 		if path == "-" {
 			err = catIn()
 		} else {
-			err = catFile(path, stdout)
+			err = catFile(path, out)
 		}
 		if err != nil {
 			fmt.Fprintf(stderr, "catt: %v\n", err)
 			exitCode = 1
 		}
+	}
+	if err := out.finish(); err != nil {
+		fmt.Fprintf(stderr, "catt: %v\n", err)
+		exitCode = 1
 	}
 	return exitCode
 }
@@ -241,7 +257,9 @@ func renderBytes(name string, data []byte, w io.Writer) error {
 		return renderMarkdown(string(data), w)
 	}
 	if isImage(name) {
-		return renderImage(name, data, w)
+		// Images manage the terminal themselves (sixel graphics), so
+		// they never go through the pager.
+		return renderImage(name, data, unwrapPager(w))
 	}
 	if isCSV(name) {
 		return renderCSV(string(data), w)
