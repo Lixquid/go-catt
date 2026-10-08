@@ -32,6 +32,11 @@ catt -h | catt --help
 Set `CATT_COLOR=yes` or `CATT_COLOR=no` to force color outputting on or off.
 Otherwise, automatic detection will be used.
 
+Set `CATT_MAX_ARCHIVE_SIZE` (e.g. `10MB`, `500KB`, or a plain byte count) to
+skip archives that need decompressing (tgz, tar.gz, tbz, tar.bz2) or spooling
+to disk (zip fed over stdin) when they exceed the limit. Plain tar and zip
+files are read in place and never hit the limit.
+
 ## Build
 
 ```

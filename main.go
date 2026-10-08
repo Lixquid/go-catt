@@ -109,6 +109,12 @@ Set CATT_COLOR=yes to force dark styling even when piped, or
 CATT_COLOR=no to force plain output even on a terminal (which also
 disables sixel rendering).
 
+Set CATT_MAX_ARCHIVE_SIZE (e.g. 10MB, 500KB, or a plain byte count)
+to skip archives that would need decompressing (tgz, tar.gz, tbz,
+tar.bz2) or spooling to disk (zip fed over stdin) when they exceed
+the limit; plain tar and zip files are read in place and never hit
+the limit.
+
 Options:
   -h, --help    show this help
 `)
@@ -217,7 +223,8 @@ func catFile(path string, w io.Writer) error {
 // into memory and dispatched by name (and magic bytes).
 func renderStream(name string, head []byte, r io.Reader, w io.Writer) error {
 	if format := archiveFormatHead(head); format != "" {
-		return renderArchiveStream(name, format, io.MultiReader(bytes.NewReader(head), r), w)
+		compressed := archiveHeadCompressed(head)
+		return renderArchiveStream(name, format, compressed, io.MultiReader(bytes.NewReader(head), r), w)
 	}
 	data, err := io.ReadAll(io.MultiReader(bytes.NewReader(head), r))
 	if err != nil {

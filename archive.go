@@ -13,17 +13,113 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 // archiveHeadSize is the number of leading bytes needed to sniff an
 // archive's magic (the ustar signature sits at offset 257).
 const archiveHeadSize = 262
+
+// envArchiveLimit names the environment variable that caps the size
+// of archives that need decompressing or spooling to disk. Plain tar
+// files and zip files are read in place, so the limit does not apply
+// to them.
+const envArchiveLimit = "CATT_MAX_ARCHIVE_SIZE"
+
+// archiveLimitBytes returns the archive size limit in bytes from
+// CATT_MAX_ARCHIVE_SIZE, or 0 when the variable is unset or empty
+// (no limit).
+func archiveLimitBytes() (int64, error) {
+	return parseArchiveLimit(os.Getenv(envArchiveLimit))
+}
+
+// parseArchiveLimit parses an archive size limit: a plain byte count
+// or a number with a decimal suffix (K, KB, M, MB, G, GB, T, TB;
+// case-insensitive; fractional values allowed). Empty input means no
+// limit (0).
+func parseArchiveLimit(s string) (int64, error) {
+	orig := s
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	mult := int64(1)
+	for _, suffix := range []struct {
+		text string
+		mult int64
+	}{
+		{"KB", 1000}, {"MB", 1000 * 1000}, {"GB", 1000 * 1000 * 1000},
+		{"TB", 1000 * 1000 * 1000 * 1000},
+		{"K", 1000}, {"M", 1000 * 1000}, {"G", 1000 * 1000 * 1000},
+		{"T", 1000 * 1000 * 1000 * 1000}, {"B", 1},
+	} {
+		if strings.HasSuffix(strings.ToUpper(s), suffix.text) {
+			mult = suffix.mult
+			s = strings.TrimSpace(s[:len(s)-len(suffix.text)])
+			break
+		}
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("invalid %s value %q", envArchiveLimit, orig)
+	}
+	return int64(v * float64(mult)), nil
+}
+
+// archiveTooLargeError reports an archive that exceeded the size
+// limit, so reading it was stopped early.
+type archiveTooLargeError struct {
+	name  string
+	limit int64
+}
+
+// errArchiveTooLarge is the sentinel matched by errors.Is so the
+// error is still recognized after being wrapped by a reader.
+var errArchiveTooLarge = errors.New("archive is too large to scan")
+
+func (e *archiveTooLargeError) Error() string {
+	return fmt.Sprintf("%s: archive is too large to scan (limit %s)", e.name, archiveSizeString(e.limit))
+}
+
+func (e *archiveTooLargeError) Is(target error) bool {
+	return target == errArchiveTooLarge
+}
+
+// archiveLimitedReader stops reading from Reader once limit bytes
+// have been consumed, returning an archiveTooLargeError so oversized
+// archive streams are not read to completion. A stream of exactly
+// limit bytes still ends cleanly: one extra byte is read past the
+// limit to detect a true end of input.
+type archiveLimitedReader struct {
+	io.Reader
+	name      string
+	limit     int64
+	remaining int64
+	exceeded  bool
+}
+
+func (lr *archiveLimitedReader) Read(p []byte) (int, error) {
+	if lr.exceeded {
+		return 0, &archiveTooLargeError{lr.name, lr.limit}
+	}
+	if int64(len(p)) > lr.remaining+1 {
+		p = p[:lr.remaining+1]
+	}
+	n, err := lr.Reader.Read(p)
+	lr.remaining -= int64(n)
+	if lr.remaining < 0 {
+		lr.exceeded = true
+		return n, &archiveTooLargeError{lr.name, lr.limit}
+	}
+	return n, err
+}
 
 // archiveSource describes an archive to list: name for error
 // messages, format ("zip" or "tar"), and the input. Tar-family
@@ -74,7 +170,10 @@ func archiveFormatHead(head []byte) string {
 
 // renderArchiveFile lists the archive in f, which must be positioned
 // at the start of the archive. Files are seekable, so zip archives
-// are read in place; tar-family archives stream.
+// are read in place; tar-family archives stream. The size limit only
+// applies to archives that need decompressing (gzipped or bzipped
+// tar); plain tar and zip files are read directly, so no limit is
+// enforced for them.
 func renderArchiveFile(name string, f *os.File, format string, w io.Writer) error {
 	src := archiveSource{name: name, format: format, r: f}
 	if format == "zip" {
@@ -83,15 +182,86 @@ func renderArchiveFile(name string, f *os.File, format string, w io.Writer) erro
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		src.ra, src.size, src.r = f, info.Size(), nil
+		return renderArchive(src, w)
+	}
+	limit, err := archiveLimitBytes()
+	if err != nil {
+		return err
+	}
+	if limit > 0 {
+		compressed, err := archiveFileCompressed(f)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if compressed {
+			info, err := f.Stat()
+			if err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+			if info.Size() > limit {
+				printArchiveTooLarge(name, info.Size(), w)
+				return nil
+			}
+		}
 	}
 	return renderArchive(src, w)
+}
+
+// archiveFileCompressed reports whether the tar-family archive at f
+// (positioned at its start) is gzip- or bzip2-compressed, restoring
+// the file position before returning.
+func archiveFileCompressed(f *os.File) (bool, error) {
+	head := make([]byte, 3)
+	n, err := io.ReadFull(f, head)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return false, err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return false, err
+	}
+	return archiveHeadCompressed(head[:n]), nil
+}
+
+// archiveHeadCompressed reports whether a sniffed archive prefix is
+// gzip- or bzip2-compressed.
+func archiveHeadCompressed(head []byte) bool {
+	return len(head) >= 2 && bytes.Equal(head[:2], []byte("\x1f\x8b")) ||
+		len(head) >= 3 && bytes.Equal(head[:3], []byte("BZh"))
+}
+
+// printArchiveTooLarge writes the notice shown when an archive
+// exceeds the configured size limit: the archive name with its file
+// size in brackets, drawn like a tree leaf, and a line below it
+// stating the file is too large to scan.
+func printArchiveTooLarge(name string, size int64, w io.Writer) {
+	grey, dark, reset := "", "", ""
+	if useDarkStyle() {
+		grey, dark, reset = "\x1b[90m", "\x1b[38;5;238m", "\x1b[0m"
+	}
+	branch, sizeStr := "└─", fmt.Sprintf("(%s)", archiveSizeString(size))
+	if grey != "" {
+		branch = grey + branch + reset
+		sizeStr = dark + sizeStr + reset
+	}
+	fmt.Fprintf(w, "%s %s %s\n", branch, name, sizeStr)
+	fmt.Fprintf(w, "   file is too large to scan\n")
 }
 
 // renderArchiveStream lists an archive arriving over a non-seekable
 // reader such as stdin. zip needs a seekable ReaderAt, so the stream
 // is spooled to a temporary file first; tar-family archives stream
 // directly. r must already include any sniffed prefix bytes.
-func renderArchiveStream(name, format string, r io.Reader, w io.Writer) error {
+// Spooling and decompression are the costly paths, so when a size
+// limit is configured, reading stops as soon as the limit is
+// exceeded and only the error is reported.
+func renderArchiveStream(name, format string, compressed bool, r io.Reader, w io.Writer) error {
+	limit, err := archiveLimitBytes()
+	if err != nil {
+		return err
+	}
+	if limit > 0 && (format == "zip" || compressed) {
+		r = &archiveLimitedReader{Reader: r, name: name, limit: limit, remaining: limit}
+	}
 	if format != "zip" {
 		return renderArchive(archiveSource{name: name, format: format, r: r}, w)
 	}
@@ -103,6 +273,10 @@ func renderArchiveStream(name, format string, r io.Reader, w io.Writer) error {
 	defer tf.Close()
 	size, err := io.Copy(tf, r)
 	if err != nil {
+		var tooLarge *archiveTooLargeError
+		if errors.As(err, &tooLarge) {
+			return err
+		}
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	if _, err := tf.Seek(0, io.SeekStart); err != nil {
@@ -141,6 +315,9 @@ func renderArchive(src archiveSource, w io.Writer) error {
 				break
 			}
 			if err != nil {
+				if errors.Is(err, errArchiveTooLarge) {
+					return err
+				}
 				return fmt.Errorf("%s: failed to read tar: %w", src.name, err)
 			}
 			entries = append(entries, archiveEntry{name: hdr.Name, size: hdr.Size})
@@ -154,7 +331,7 @@ func renderArchive(src archiveSource, w io.Writer) error {
 	// other renderers.
 	grey, dark, reset := "", "", ""
 	if useDarkStyle() {
-		grey, dark, reset = "\x1b[90m", "\x1b[38;5;243m", "\x1b[0m"
+		grey, dark, reset = "\x1b[90m", "\x1b[38;5;238m", "\x1b[0m"
 	}
 	printTree(buildTree(entries), w, "", grey, dark, reset)
 	return nil

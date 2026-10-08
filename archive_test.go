@@ -5,7 +5,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"errors"
+	"fmt"
 	"io"
+	"math/rand"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -327,5 +332,301 @@ func TestRenderStreamArchiveDispatch(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "hello.txt") {
 		t.Errorf("zip data should be rendered as a tree, got %q", buf.String())
+	}
+}
+
+// countReader counts the bytes consumed from the underlying reader.
+type countReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+func TestParseArchiveLimit(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int64
+		ok   bool
+	}{
+		{"", 0, true},
+		{"  ", 0, true},
+		{"0", 0, true},
+		{"1024", 1024, true},
+		{"10KB", 10000, true},
+		{"10kb", 10000, true},
+		{"10k", 10000, true},
+		{"1.5MB", 1500000, true},
+		{"2GB", 2000000000, true},
+		{"1TB", 1000000000000, true},
+		{"500B", 500, true},
+		{"  500KB  ", 500000, true},
+		{"abc", 0, false},
+		{"-5", 0, false},
+		{"1.2.3KB", 0, false},
+	}
+	for _, tt := range tests {
+		got, err := parseArchiveLimit(tt.in)
+		if tt.ok {
+			if err != nil {
+				t.Errorf("parseArchiveLimit(%q) unexpected error: %v", tt.in, err)
+				continue
+			}
+			if got != tt.want {
+				t.Errorf("parseArchiveLimit(%q) = %d, want %d", tt.in, got, tt.want)
+			}
+		} else if err == nil {
+			t.Errorf("parseArchiveLimit(%q) should fail, got %d", tt.in, got)
+		}
+	}
+}
+
+// makeBigTgz builds a gzipped tar holding a single file of n
+// pseudo-random (incompressible) bytes, so the archive size can be
+// controlled precisely.
+func makeBigTgz(t *testing.T, n int) []byte {
+	t.Helper()
+	var raw bytes.Buffer
+	tw := tar.NewWriter(&raw)
+	if err := tw.WriteHeader(&tar.Header{Name: "big.bin", Size: int64(n)}); err != nil {
+		t.Fatal(err)
+	}
+	payload := make([]byte, n)
+	if _, err := rand.New(rand.NewSource(1)).Read(payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(raw.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestRenderArchiveFileTooLarge(t *testing.T) {
+	t.Setenv("CATT_COLOR", "no")
+	t.Setenv(envArchiveLimit, "100B")
+	data := makeBigTgz(t, 5000)
+	path := filepath.Join(t.TempDir(), "big.tgz")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	if err := renderArchiveFile(path, f, "tar", &buf); err != nil {
+		t.Fatalf("renderArchiveFile: %v", err)
+	}
+	want := fmt.Sprintf("└─ %s (%s)\n   file is too large to scan\n", path, archiveSizeString(int64(len(data))))
+	if got := buf.String(); got != want {
+		t.Errorf("too-large notice = %q, want %q", got, want)
+	}
+}
+
+func TestRenderArchiveFileTooLargeStyled(t *testing.T) {
+	t.Setenv("CATT_COLOR", "yes")
+	t.Setenv(envArchiveLimit, "100B")
+	data := makeBigTgz(t, 5000)
+	path := filepath.Join(t.TempDir(), "big.tgz")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	if err := renderArchiveFile(path, f, "tar", &buf); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("\x1b[90m└─\x1b[0m %s \x1b[38;5;238m(%s)\x1b[0m\n   file is too large to scan\n", path, archiveSizeString(int64(len(data))))
+	if got := buf.String(); got != want {
+		t.Errorf("styled too-large notice = %q, want %q", got, want)
+	}
+}
+
+func TestRenderArchiveFileUnderLimit(t *testing.T) {
+	t.Setenv("CATT_COLOR", "no")
+	t.Setenv(envArchiveLimit, "10MB")
+	path := filepath.Join(t.TempDir(), "ok.tgz")
+	data := makeBigTgz(t, 5000)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var buf bytes.Buffer
+	if err := renderArchiveFile(path, f, "tar", &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "big.bin") {
+		t.Errorf("archive under the limit should be listed, got %q", buf.String())
+	}
+}
+
+func TestRenderArchiveFileNoLimitForPlainTarAndZip(t *testing.T) {
+	// Plain tar and zip files are read in place without decompressing
+	// or spooling, so the size limit does not apply to them.
+	t.Setenv("CATT_COLOR", "no")
+	t.Setenv(envArchiveLimit, "10B")
+
+	var raw bytes.Buffer
+	tw := tar.NewWriter(&raw)
+	if err := tw.WriteHeader(&tar.Header{Name: "big.bin", Size: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zipData := makeTestZip(t)
+
+	tests := []struct {
+		name string
+		data []byte
+		frag string
+	}{
+		{"plain.tar", raw.Bytes(), "big.bin"},
+		{"plain.zip", zipData, "hello.txt"},
+	}
+	for _, tt := range tests {
+		path := filepath.Join(t.TempDir(), tt.name)
+		if err := os.WriteFile(path, tt.data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		if err := renderArchiveFile(path, f, archiveFormatName(path), &buf); err != nil {
+			t.Errorf("renderArchiveFile(%q): %v", tt.name, err)
+		} else if !strings.Contains(buf.String(), tt.frag) {
+			t.Errorf("%s over the limit should still be listed, got %q", tt.name, buf.String())
+		}
+		f.Close()
+	}
+}
+
+func TestRenderArchiveStreamZipTooLarge(t *testing.T) {
+	// A zip stream is spooled to disk, so the limit applies: reading
+	// must stop as soon as the limit is exceeded and only the error is
+	// reported.
+	t.Setenv("CATT_COLOR", "no")
+	t.Setenv(envArchiveLimit, "100B")
+	data := makeTestZip(t)
+	split := min(archiveHeadSize, len(data))
+	cr := &countReader{r: bytes.NewReader(data[split:])}
+	var buf bytes.Buffer
+	err := renderStream("<stdin>", data[:split], cr, &buf)
+	if err == nil {
+		t.Fatal("oversized zip stream should fail")
+	}
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Errorf("error should be errArchiveTooLarge, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "limit 100B") {
+		t.Errorf("error should mention the limit, got %q", err.Error())
+	}
+	if cr.n > 100 {
+		t.Errorf("reading should stop near the limit, read %d bytes", cr.n)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("nothing should be printed for a too-large stream, got %q", buf.String())
+	}
+}
+
+func TestRenderArchiveStreamCompressedTarTooLarge(t *testing.T) {
+	// A compressed tar stream needs decompression, so the limit
+	// applies to the raw bytes read.
+	t.Setenv("CATT_COLOR", "no")
+	t.Setenv(envArchiveLimit, "100B")
+	data := makeBigTgz(t, 5000)
+	split := min(archiveHeadSize, len(data))
+	cr := &countReader{r: bytes.NewReader(data[split:])}
+	var buf bytes.Buffer
+	err := renderStream("<stdin>", data[:split], cr, &buf)
+	if err == nil {
+		t.Fatal("oversized tgz stream should fail")
+	}
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Errorf("error should be errArchiveTooLarge, got %v", err)
+	}
+	if cr.n > 100 {
+		t.Errorf("reading should stop near the limit, read %d bytes", cr.n)
+	}
+}
+
+func TestRenderArchiveStreamUnderLimit(t *testing.T) {
+	// Streams within the limit are listed normally.
+	t.Setenv("CATT_COLOR", "no")
+	t.Setenv(envArchiveLimit, "10MB")
+	data := makeBigTgz(t, 5000)
+	split := min(archiveHeadSize, len(data))
+	var buf bytes.Buffer
+	if err := renderStream("<stdin>", data[:split], bytes.NewReader(data[split:]), &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "big.bin") {
+		t.Errorf("stream under the limit should be listed, got %q", buf.String())
+	}
+}
+
+func TestRenderArchiveStreamPlainTarNoLimit(t *testing.T) {
+	// A plain tar stream is neither decompressed nor spooled, so the
+	// limit does not apply.
+	t.Setenv("CATT_COLOR", "no")
+	t.Setenv(envArchiveLimit, "10B")
+	var raw bytes.Buffer
+	tw := tar.NewWriter(&raw)
+	if err := tw.WriteHeader(&tar.Header{Name: "big.bin", Size: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	split := min(archiveHeadSize, raw.Len())
+	var buf bytes.Buffer
+	if err := renderStream("<stdin>", raw.Bytes()[:split], bytes.NewReader(raw.Bytes()[split:]), &buf); err != nil {
+		t.Errorf("plain tar over the limit should still be listed: %v", err)
+	} else if !strings.Contains(buf.String(), "big.bin") {
+		t.Errorf("plain tar over the limit should be listed, got %q", buf.String())
+	}
+}
+
+func TestRenderArchiveInvalidLimit(t *testing.T) {
+	t.Setenv("CATT_COLOR", "no")
+	t.Setenv(envArchiveLimit, "nonsense")
+	data := makeTestZip(t)
+	split := min(archiveHeadSize, len(data))
+	var buf bytes.Buffer
+	err := renderStream("<stdin>", data[:split], bytes.NewReader(data[split:]), &buf)
+	if err == nil || !strings.Contains(err.Error(), "CATT_MAX_ARCHIVE_SIZE") {
+		t.Errorf("invalid limit should fail with a mention of the variable, got %v", err)
 	}
 }
