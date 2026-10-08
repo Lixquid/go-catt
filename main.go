@@ -3,8 +3,8 @@
 // Like cat, it prints any file to output. Files with a markdown
 // extension are rendered with glamour. Code files are printed with
 // syntax highlighting via chroma. PNG, JPEG, and GIF files are displayed
-// as sixel graphics on terminals that support them. Zip and tar
-// archives are listed as a tree of files.
+// with the kitty graphics protocol or as sixel graphics on terminals
+// that support them. Zip and tar archives are listed as a tree of files.
 package main
 
 import (
@@ -101,13 +101,20 @@ identical in appearance to tables from markdown files. Archive files
 drawn with grey box-drawing characters. All use the same
 dark styling on a terminal and plain output when piped.
 
-PNG, JPEG, and GIF files are displayed as sixel graphics on terminals
-that support them, and passed through untouched otherwise. Animated
-GIFs are shown as their first frame.
+PNG, JPEG, and GIF files are displayed with the kitty graphics
+protocol where the terminal supports it, as sixels otherwise, and
+passed through untouched when no graphics protocol is available.
+Animated GIFs are shown as their first frame.
 
 Set CATT_COLOR=yes to force dark styling even when piped, or
 CATT_COLOR=no to force plain output even on a terminal (which also
-disables sixel rendering).
+disables graphics rendering under auto detection).
+
+Set CATT_IMAGE_PROTOCOL=kitty, sixel, or none to force an image
+protocol, or leave it unset (or "auto") to detect the kitty graphics
+protocol and fall back to sixels. CATT_KITTY=yes is a shorthand for
+CATT_IMAGE_PROTOCOL=kitty, and CATT_KITTY=no disables kitty detection
+so auto may fall back to sixels.
 
 When output goes to a terminal and is larger than the viewport, it is
 piped through a pager. The pager comes from the PAGER environment
@@ -258,7 +265,8 @@ func renderBytes(name string, data []byte, w io.Writer) error {
 		return renderMarkdown(string(data), w)
 	}
 	if isImage(name) {
-		// Images manage the terminal themselves (sixel graphics), so
+		// Images manage the terminal themselves (kitty graphics or
+		// sixels), so
 		// they never go through the pager.
 		return renderImage(name, data, unwrapPager(w))
 	}

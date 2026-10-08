@@ -10,6 +10,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-sixel v0.0.14
 	github.com/muesli/termenv v0.16.0
+	golang.org/x/sys v0.39.0
 	golang.org/x/term v0.38.0
 )
 
@@ -32,6 +33,5 @@ require (
 	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 )

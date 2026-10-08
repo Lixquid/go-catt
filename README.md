@@ -18,7 +18,7 @@ for humans, not tooling.
 - Syntax highlights source code files
 - Transforms markdown files into nicely rendered output
 - Turns CSV files into tables
-- Displays PNG, JPG, and GIF files (using sixels on terminals that support them)
+- Displays PNG, JPG, and GIF files (using the kitty graphics protocol or sixels on terminals that support them)
 - Lists archives as a tree
 - Automatically pages large output to `$PAGER` (or `more` on Windows and `less` elsewhere if `$PAGER` isn't set)
 
@@ -39,6 +39,12 @@ Configuration is done via environment variables:
   size if they're compressed tars (`tgz`, `tbz`, etc.) or zips from stdin to
   avoid making large files on disk. Plain tar and zip files on disk are read in
   place and do not trigger this limit. No value disables the limit.
+- `CATT_IMAGE_PROTOCOL=auto|kitty|sixel|none` controls how images are drawn.
+  `auto` (the default) detects the kitty graphics protocol first and falls back
+  to sixels; `kitty` and `sixel` force a protocol; `none` passes image bytes
+  through untouched. `CATT_KITTY=yes` is shorthand for
+  `CATT_IMAGE_PROTOCOL=kitty`, and `CATT_KITTY=no` disables kitty detection so
+  `auto` may fall back to sixels.
 
 ## Build
 

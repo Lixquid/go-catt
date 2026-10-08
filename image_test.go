@@ -60,9 +60,9 @@ func TestScaleImageSampling(t *testing.T) {
 
 func TestRenderImagePassthrough(t *testing.T) {
 	t.Setenv("CATT_COLOR", "no")
-	// With styling off, sixel rendering is disabled and the raw bytes
-	// pass through untouched, like cat. Invalid image data passes
-	// through even when sixels are enabled.
+	// With styling off, auto protocol detection is disabled and the
+	// raw bytes pass through untouched, like cat. Invalid image data
+	// passes through even when graphics are enabled.
 	tests := []string{"no", "yes"}
 	for _, color := range tests {
 		t.Setenv("CATT_COLOR", color)
