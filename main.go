@@ -104,7 +104,9 @@ dark styling on a terminal and plain output when piped.
 PNG, JPEG, and GIF files are displayed with the kitty graphics
 protocol where the terminal supports it, as sixels otherwise, and
 passed through untouched when no graphics protocol is available.
-Animated GIFs are shown as their first frame.
+Animated GIFs are shown as their first frame. Images are recognized
+by extension or, when the name gives no hint (no extension, a generic
+one like .bin, or stdin input), by their magic bytes.
 
 Set CATT_COLOR=yes to force dark styling even when piped, or
 CATT_COLOR=no to force plain output even on a terminal (which also
@@ -272,6 +274,12 @@ func renderBytes(name string, data []byte, w io.Writer) error {
 	}
 	if isCSV(name) {
 		return renderCSV(string(data), w)
+	}
+	// Extension detection found nothing (missing or generic extension,
+	// or stdin input named "<stdin>"): fall back to magic bytes so
+	// extensionless images still render as graphics.
+	if isImageMagic(data) {
+		return renderImage(name, data, unwrapPager(w))
 	}
 	return renderCode(name, string(data), w)
 }

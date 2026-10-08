@@ -18,7 +18,7 @@ for humans, not tooling.
 - Syntax highlights source code files
 - Transforms markdown files into nicely rendered output
 - Turns CSV files into tables
-- Displays PNG, JPG, and GIF files (using the kitty graphics protocol or sixels on terminals that support them)
+- Displays PNG, JPG, and GIF files (using the kitty graphics protocol or sixels on terminals that support them), recognized by extension or magic bytes, so extensionless and misnamed images still render (including from stdin)
 - Lists archives as a tree
 - Automatically pages large output to `$PAGER` (or `more` on Windows and `less` elsewhere if `$PAGER` isn't set)
 
