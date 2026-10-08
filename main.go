@@ -111,8 +111,9 @@ disables sixel rendering).
 
 When output goes to a terminal and is larger than the viewport, it is
 piped through a pager. The pager comes from the PAGER environment
-variable (which may include arguments) and defaults to less. Set
-CATT_PAGE=yes to always paginate, or CATT_PAGE=no to never paginate.
+variable (which may include arguments) and defaults to more on
+Windows and less elsewhere. Set CATT_PAGE=yes to always paginate, or
+CATT_PAGE=no to never paginate.
 
 Set CATT_MAX_ARCHIVE_SIZE (e.g. 10MB, 500KB, or a plain byte count)
 to skip archives that would need decompressing (tgz, tar.gz, tbz,

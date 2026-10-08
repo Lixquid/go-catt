@@ -1,8 +1,9 @@
 // Pager support: when output goes to a terminal and would be larger
 // than the terminal viewport, it is piped through a pager instead.
 // The pager is taken from the PAGER environment variable and defaults
-// to less. CATT_PAGE=yes forces pagination on (even when piped or when
-// the output fits), CATT_PAGE=no forces it off.
+// to more on Windows and less elsewhere. CATT_PAGE=yes forces
+// pagination on (even when piped or when the output fits),
+// CATT_PAGE=no forces it off.
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -21,14 +23,25 @@ import (
 )
 
 // defaultPager is used when PAGER is unset or empty.
-const defaultPager = "less -R"
+const (
+	unixDefaultPager    = "less -R"
+	windowsDefaultPager = "more"
+)
+
+// defaultPager returns the fallback pager for the current platform.
+func defaultPager() string {
+	if runtime.GOOS == "windows" {
+		return windowsDefaultPager
+	}
+	return unixDefaultPager
+}
 
 // pagerArgv returns the pager command and its arguments. PAGER may
 // contain arguments (e.g. "less -FX"), so it is split on whitespace.
 func pagerArgv() []string {
 	fields := strings.Fields(os.Getenv("PAGER"))
 	if len(fields) == 0 {
-		fields = strings.Fields(defaultPager)
+		fields = strings.Fields(defaultPager())
 	}
 	return fields
 }

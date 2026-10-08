@@ -20,7 +20,7 @@ for humans, not tooling.
 - Turns CSV files into tables
 - Displays PNG, JPG, and GIF files (using sixels on terminals that support them)
 - Lists archives as a tree
-- Automatically pages large output to `$PAGER` (or `less` if `$PAGER` isn't set)
+- Automatically pages large output to `$PAGER` (or `more` on Windows and `less` elsewhere if `$PAGER` isn't set)
 
 ## Usage
 
