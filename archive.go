@@ -1,25 +1,44 @@
 // Archive rendering: list the contents of zip and tar archives
 // (optionally gzip- or bzip2-compressed) as a tree of files, with
-// 2 spaces of indentation per directory level.
+// 2 spaces of indentation per directory level. Archives are never
+// loaded into memory in full: tar-family archives are read as a
+// stream, and zip archives are read via a ReaderAt so only the
+// central directory is touched.
 package main
 
 import (
 	"archive/tar"
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"sort"
 	"strings"
 )
 
-// archiveFormat identifies an archive by extension, falling back to
-// magic bytes so that misnamed files (and stdin input) still work.
-// gzip/bzip2 data is assumed to contain a tar archive.
-func archiveFormat(name string, data []byte) string {
+// archiveHeadSize is the number of leading bytes needed to sniff an
+// archive's magic (the ustar signature sits at offset 257).
+const archiveHeadSize = 262
+
+// archiveSource describes an archive to list: name for error
+// messages, format ("zip" or "tar"), and the input. Tar-family
+// archives are read sequentially from r; zip archives use ra to read
+// the central directory without touching file contents.
+type archiveSource struct {
+	name   string
+	format string
+	r      io.Reader
+	ra     io.ReaderAt
+	size   int64
+}
+
+// archiveFormatName identifies an archive by extension.
+func archiveFormatName(name string) string {
 	ext := strings.ToLower(name)
 	switch {
 	case strings.HasSuffix(ext, ".zip"):
@@ -32,61 +51,94 @@ func archiveFormat(name string, data []byte) string {
 		strings.HasSuffix(ext, ".tar.bz2"):
 		return "tar"
 	}
+	return ""
+}
+
+// archiveFormatHead identifies an archive from its leading bytes so
+// that misnamed files (and stdin input) still work. gzip/bzip2 data
+// is assumed to contain a tar archive.
+func archiveFormatHead(head []byte) string {
 	// Magic-byte sniffing.
 	switch {
-	case len(data) >= 4 && bytes.Equal(data[:4], []byte("PK\x03\x04")):
+	case len(head) >= 4 && bytes.Equal(head[:4], []byte("PK\x03\x04")):
 		return "zip"
-	case len(data) >= 2 && bytes.Equal(data[:2], []byte("\x1f\x8b")):
+	case len(head) >= 2 && bytes.Equal(head[:2], []byte("\x1f\x8b")):
 		return "tar"
-	case len(data) >= 3 && bytes.Equal(data[:3], []byte("BZh")):
+	case len(head) >= 3 && bytes.Equal(head[:3], []byte("BZh")):
 		return "tar"
-	case len(data) >= 262 && bytes.Equal(data[257:262], []byte("ustar")):
+	case len(head) >= 262 && bytes.Equal(head[257:262], []byte("ustar")):
 		return "tar"
 	}
 	return ""
 }
 
+// renderArchiveFile lists the archive in f, which must be positioned
+// at the start of the archive. Files are seekable, so zip archives
+// are read in place; tar-family archives stream.
+func renderArchiveFile(name string, f *os.File, format string, w io.Writer) error {
+	src := archiveSource{name: name, format: format, r: f}
+	if format == "zip" {
+		info, err := f.Stat()
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		src.ra, src.size, src.r = f, info.Size(), nil
+	}
+	return renderArchive(src, w)
+}
+
+// renderArchiveStream lists an archive arriving over a non-seekable
+// reader such as stdin. zip needs a seekable ReaderAt, so the stream
+// is spooled to a temporary file first; tar-family archives stream
+// directly. r must already include any sniffed prefix bytes.
+func renderArchiveStream(name, format string, r io.Reader, w io.Writer) error {
+	if format != "zip" {
+		return renderArchive(archiveSource{name: name, format: format, r: r}, w)
+	}
+	tf, err := os.CreateTemp("", "catt-archive-")
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	defer os.Remove(tf.Name())
+	defer tf.Close()
+	size, err := io.Copy(tf, r)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if _, err := tf.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	return renderArchive(archiveSource{name: name, format: format, ra: tf, size: size}, w)
+}
+
 // renderArchive lists the files in an archive as a tree, directories
 // suffixed with "/", drawn with box-drawing characters and each level
 // indented by 2 spaces.
-func renderArchive(name string, data []byte, w io.Writer) error {
-	format := archiveFormat(name, data)
-	if format == "" {
-		return fmt.Errorf("%s: unrecognized archive format", name)
-	}
-
+func renderArchive(src archiveSource, w io.Writer) error {
 	var entries []string
-	if format == "zip" {
-		zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	switch src.format {
+	case "zip":
+		zr, err := zip.NewReader(src.ra, src.size)
 		if err != nil {
-			return fmt.Errorf("%s: failed to read zip: %w", name, err)
+			return fmt.Errorf("%s: failed to read zip: %w", src.name, err)
 		}
 		for _, f := range zr.File {
 			entries = append(entries, f.Name)
 		}
-	} else {
-		var r io.Reader = bytes.NewReader(data)
-		switch {
-		case len(data) >= 2 && bytes.Equal(data[:2], []byte("\x1f\x8b")):
-			gz, err := gzip.NewReader(r)
-			if err != nil {
-				return fmt.Errorf("%s: failed to read gzip: %w", name, err)
-			}
-			r = gz
-		case len(data) >= 3 && bytes.Equal(data[:3], []byte("BZh")):
-			r = bzip2.NewReader(r)
-		}
-		tr := tar.NewReader(r)
+	case "tar":
+		tr := tar.NewReader(archiveTarInput(src.r))
 		for {
 			hdr, err := tr.Next()
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				return fmt.Errorf("%s: failed to read tar: %w", name, err)
+				return fmt.Errorf("%s: failed to read tar: %w", src.name, err)
 			}
 			entries = append(entries, hdr.Name)
 		}
+	default:
+		return fmt.Errorf("%s: unrecognized archive format", src.name)
 	}
 
 	// Grey the box-drawing guides when output is styled, plain when
@@ -97,6 +149,23 @@ func renderArchive(name string, data []byte, w io.Writer) error {
 	}
 	printTree(buildTree(entries), w, "", grey, reset)
 	return nil
+}
+
+// archiveTarInput wraps a tar-family stream, transparently
+// decompressing gzip or bzip2 based on the leading bytes. Only a few
+// bytes are peeked; the stream itself is never buffered in full.
+func archiveTarInput(r io.Reader) io.Reader {
+	br := bufio.NewReader(r)
+	magic, _ := br.Peek(3)
+	switch {
+	case len(magic) >= 2 && bytes.Equal(magic[:2], []byte("\x1f\x8b")):
+		if gz, err := gzip.NewReader(br); err == nil {
+			return gz
+		}
+	case len(magic) >= 3 && bytes.Equal(magic[:3], []byte("BZh")):
+		return bzip2.NewReader(br)
+	}
+	return br
 }
 
 // node is one entry in the archive tree.

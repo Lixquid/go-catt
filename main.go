@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -139,11 +140,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			usage(stderr)
 			os.Exit(1)
 		}
-		data, err := io.ReadAll(stdin)
-		if err != nil {
+		// Sniff a small prefix so archives can be streamed or spooled
+		// instead of being buffered in full.
+		head := make([]byte, archiveHeadSize)
+		n, err := io.ReadFull(stdin, head)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return fmt.Errorf("could not read stdin: %w", err)
 		}
-		return renderBytes("<stdin>", data, stdout)
+		return renderStream("<stdin>", head[:n], stdin, stdout)
 	}
 
 	exitCode := 0
@@ -175,7 +179,31 @@ func catFile(path string, w io.Writer) error {
 	}
 	defer f.Close()
 
-	data, err := io.ReadAll(f)
+	// Archives are never read into memory in full: tar-family ones
+	// stream, and zip ones are read in place via the seekable file.
+	// The extension decides first, with a small header sniff as
+	// fallback for misnamed files.
+	format := archiveFormatName(path)
+	var head []byte
+	if format == "" {
+		head = make([]byte, archiveHeadSize)
+		n, err := io.ReadFull(f, head)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		head = head[:n]
+		format = archiveFormatHead(head)
+	}
+	if format != "" {
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		return renderArchiveFile(path, f, format, w)
+	}
+
+	// Regular content: read it all (the sniffed prefix is prepended
+	// so nothing is lost) and dispatch by name.
+	data, err := io.ReadAll(io.MultiReader(bytes.NewReader(head), f))
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
@@ -183,8 +211,24 @@ func catFile(path string, w io.Writer) error {
 	return renderBytes(path, data, w)
 }
 
+// renderStream renders input that may not be seekable (stdin), given
+// a small sniffed prefix and the remaining reader. Archives are
+// handled without buffering the whole input; other content is read
+// into memory and dispatched by name (and magic bytes).
+func renderStream(name string, head []byte, r io.Reader, w io.Writer) error {
+	if format := archiveFormatHead(head); format != "" {
+		return renderArchiveStream(name, format, io.MultiReader(bytes.NewReader(head), r), w)
+	}
+	data, err := io.ReadAll(io.MultiReader(bytes.NewReader(head), r))
+	if err != nil {
+		return fmt.Errorf("could not read %s: %w", name, err)
+	}
+	return renderBytes(name, data, w)
+}
+
 // renderBytes renders already-loaded file contents based on the file
-// name (and, for archives, magic bytes).
+// name. Archives are dispatched earlier (catFile or renderStream) so
+// they never reach this buffered path.
 func renderBytes(name string, data []byte, w io.Writer) error {
 	if isMarkdown(name) {
 		return renderMarkdown(string(data), w)
@@ -194,9 +238,6 @@ func renderBytes(name string, data []byte, w io.Writer) error {
 	}
 	if isCSV(name) {
 		return renderCSV(string(data), w)
-	}
-	if archiveFormat(name, data) != "" {
-		return renderArchive(name, data, w)
 	}
 	return renderCode(name, string(data), w)
 }

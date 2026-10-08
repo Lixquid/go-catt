@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"io"
 	"strings"
 	"testing"
 )
@@ -27,8 +28,8 @@ func TestArchiveFormatByExtension(t *testing.T) {
 		{"notatargz", ""}, // ".gz" alone is not an archive extension
 	}
 	for _, tt := range tests {
-		if got := archiveFormat(tt.name, nil); got != tt.want {
-			t.Errorf("archiveFormat(%q, nil) = %q, want %q", tt.name, got, tt.want)
+		if got := archiveFormatName(tt.name); got != tt.want {
+			t.Errorf("archiveFormatName(%q) = %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }
@@ -48,10 +49,28 @@ func TestArchiveFormatByMagic(t *testing.T) {
 		{"weird.bin", nil, ""},
 	}
 	for _, tt := range tests {
-		if got := archiveFormat(tt.name, tt.data); got != tt.want {
-			t.Errorf("archiveFormat(%q, %q) = %q, want %q", tt.name, tt.data, got, tt.want)
+		if got := archiveFormatHead(tt.data); got != tt.want {
+			t.Errorf("archiveFormatHead(%q) = %q, want %q", tt.data, got, tt.want)
 		}
 	}
+}
+
+// renderArchiveBytes lists in-memory archive contents, mirroring the
+// dispatch that catFile does for files (extension first, then magic
+// bytes).
+func renderArchiveBytes(name string, data []byte, w io.Writer) error {
+	format := archiveFormatName(name)
+	if format == "" {
+		format = archiveFormatHead(data)
+	}
+	src := archiveSource{name: name, format: format}
+	if format == "zip" {
+		br := bytes.NewReader(data)
+		src.ra, src.size = br, int64(len(data))
+	} else {
+		src.r = bytes.NewReader(data)
+	}
+	return renderArchive(src, w)
 }
 
 // buildTreeChildren returns the child node with the given name, failing
@@ -197,19 +216,19 @@ func TestRenderArchive(t *testing.T) {
 	}
 	for _, tt := range tests {
 		var buf bytes.Buffer
-		if err := renderArchive(tt.name, tt.data, &buf); err != nil {
-			t.Fatalf("renderArchive(%q): %v", tt.name, err)
+		if err := renderArchiveBytes(tt.name, tt.data, &buf); err != nil {
+			t.Fatalf("renderArchiveBytes(%q): %v", tt.name, err)
 		}
 		if got := buf.String(); got != tt.want {
-			t.Errorf("renderArchive(%q) tree = %q, want %q", tt.name, got, tt.want)
+			t.Errorf("renderArchiveBytes(%q) tree = %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }
 
 func TestRenderArchiveUnrecognized(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderArchive("x.zip", []byte("not an archive"), &buf); err == nil {
-		t.Error("renderArchive with invalid zip data should fail")
+	if err := renderArchiveBytes("x.zip", []byte("not an archive"), &buf); err == nil {
+		t.Error("renderArchiveBytes with invalid zip data should fail")
 	}
 }
 
@@ -248,12 +267,15 @@ func TestPrintTreeGreyGuides(t *testing.T) {
 	}
 }
 
-func TestRenderBytesArchiveDispatch(t *testing.T) {
+func TestRenderStreamArchiveDispatch(t *testing.T) {
 	t.Setenv("CATT_COLOR", "no")
-	// A zip file is listed as a tree even when stdin has no name hint.
+	// A zip stream is listed as a tree even when it has no name hint:
+	// the sniffed prefix is enough. The spooled temp-file path for zip
+	// is exercised too, since stdin is not seekable.
 	data := makeTestZip(t)
+	split := min(archiveHeadSize, len(data))
 	var buf bytes.Buffer
-	if err := renderBytes("whatever.bin", data, &buf); err != nil {
+	if err := renderStream("whatever.bin", data[:split], bytes.NewReader(data[split:]), &buf); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "hello.txt") {
