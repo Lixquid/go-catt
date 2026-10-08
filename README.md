@@ -20,6 +20,7 @@ for humans, not tooling.
 - Turns CSV files into tables
 - Displays PNG, JPG, and GIF files (using sixels on terminals that support them)
 - Lists archives as a tree
+- Automatically pages large output to `$PAGER` (or `less` if `$PAGER` isn't set)
 
 ## Usage
 
@@ -29,18 +30,15 @@ catt < file
 catt -h | catt --help
 ```
 
-Set `CATT_COLOR=yes` or `CATT_COLOR=no` to force color outputting on or off.
-Otherwise, automatic detection will be used.
-
-When output goes to a terminal and is larger than the viewport, it is piped
-through a pager. The pager comes from the `PAGER` environment variable (which
-may include arguments) and defaults to `less`. Set `CATT_PAGE=yes` to always
-paginate, or `CATT_PAGE=no` to never paginate.
-
-Set `CATT_MAX_ARCHIVE_SIZE` (e.g. `10MB`, `500KB`, or a plain byte count) to
-skip archives that need decompressing (tgz, tar.gz, tbz, tar.bz2) or spooling
-to disk (zip fed over stdin) when they exceed the limit. Plain tar and zip
-files are read in place and never hit the limit.
+Configuration is done via environment variables:
+- `CATT_COLOR=yes|no` forces color output on or off. Otherwise, automatic
+  detection of an interactive terminal will be used.
+- `CATT_PAGE=yes|no` forces output to the pager. Otherwise, detection of if the
+  viewport is large enough to contain it will be used.
+- `CATT_MAX_ARCHIVE_SIZE=10MB|500KB` will skip listing archives above the given
+  size if they're compressed tars (`tgz`, `tbz`, etc.) or zips from stdin to
+  avoid making large files on disk. Plain tar and zip files on disk are read in
+  place and do not trigger this limit. No value disables the limit.
 
 ## Build
 
